@@ -1,2 +1,4 @@
 /bin
-a.out.dSYM/Contents/Info.plist
+/build
+/node_modules
+index.js

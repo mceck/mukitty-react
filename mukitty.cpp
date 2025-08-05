@@ -1,6 +1,9 @@
-/* c64-kitty.c
- * C64 running in a terminal using Kitty Graphics Protocol.  */
-
+// Node.js plugin that integrates together Raylib and MicroUI
+#include <print>
+#include <node.h>
+extern "C" {
+    #include "microui.h"
+}
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +13,6 @@
 #include <unistd.h>
 // Bitmap font for rendering text.
 #include "font.h"
-#include "microui.h"
 
 /* Global configuration (mostly from command line options). */
 struct {
@@ -26,7 +28,6 @@ struct {
   int width;          // display width in pixels.
   int height;         // display height in pixels.
 } Config;
-
 #define MIN_ZOOM 0.25           // Minimum zoom level.
 #define MAX_ZOOM 10             // Maximum zoom level.
 #define DEFAULT_WIDTH_CHARS 32  // Width in characters.
@@ -36,6 +37,8 @@ struct {
 #define SCREEN_W 400
 #define SCREEN_H 300
 #define FONT_SIZE 8
+#define GHOSTTY
+
 
 // Function to encode data to base64
 size_t base64_encode(const unsigned char *data, size_t input_length,
@@ -95,20 +98,24 @@ int kbhit() {
   return bytesWaiting;
 }
 
+uint8_t *fb = NULL; // Framebuffer pointer
+long kitty_id = 0; // Kitty graphics ID
+
 // Initialize Kitty graphics protocol
-uint8_t *kitty_init(int width, int height, long *kitty_id) {
+uint8_t *kitty_init(int width, int height) {
   // Initialize random seed for image ID
   srand(time(NULL));
-  *kitty_id = rand();
+  kitty_id = rand();
 
   // Allocate framebuffer memory
-  uint8_t *fb = malloc(width * height * 3);
+  fb = (uint8_t *)malloc(width * height * 3);
   memset(fb, 0, width * height * 3);
   return fb;
 }
 
 // Update display using Kitty graphics protocol
-void kitty_update_display(long kitty_id, int frame_number, uint8_t *fb) {
+void kitty_update_display() {
+  static int frame_number = 0;
   // Calculate base64 encoded size
   size_t bitmap_size = Config.width * Config.height * 3;
   size_t encoded_size = 4 * ((bitmap_size + 2) / 3);
@@ -181,6 +188,7 @@ void kitty_update_display(long kitty_id, int frame_number, uint8_t *fb) {
   if (frame_number == 0) {
     printf("\r\n");
     fflush(stdout);
+    frame_number++;
   }
 
   // Clean up
@@ -273,7 +281,7 @@ int process_input(mu_Context *ctx) {
 }
 
 void crt_set_pixel(void *fbptr, int x, int y, uint32_t color) {
-  uint8_t *fb = fbptr;
+  uint8_t *fb = (uint8_t *)fbptr;
 
   if (x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H)
     return;
@@ -286,47 +294,28 @@ void crt_set_pixel(void *fbptr, int x, int y, uint32_t color) {
 
 /* Initialize and parse the configuration, storing it into the
  * global Config structure. */
-void parse_config(int argc, char **argv) {
+void parse_config() {
   Config.ghostty_mode = 1;
   Config.kitty_mode = 0;
   Config.prg_filename = NULL;
   Config.zoom = DEFAULT_ZOOM;
   Config.width = SCREEN_W;
   Config.height = SCREEN_H;
-
-  for (int j = 1; j < argc; j++) {
-    int leftargs = argc - j - 1;
-    if (!strcasecmp(argv[j], "--kitty")) {
-      Config.kitty_mode = 1;
-      Config.ghostty_mode = 0;
-    } else if (!strcasecmp(argv[j], "--ghostty")) {
-      Config.kitty_mode = 0;
-      Config.ghostty_mode = 1;
-    } else if (!strcasecmp(argv[j], "--zoom") && leftargs) {
-      j++;
-      Config.zoom = strtod(argv[j], NULL);
-      if (Config.zoom < MIN_ZOOM) {
-        Config.zoom = MIN_ZOOM;
-      } else if (Config.zoom > MAX_ZOOM) {
-        Config.zoom = MAX_ZOOM;
-      }
-    } else {
-      if (argv[j][0] != '-' && Config.prg_filename == NULL) {
-        Config.prg_filename = strdup(argv[j]);
-      } else {
-        fprintf(stderr, "Unrecognized option: %s\n", argv[j]);
-        exit(1);
-      }
-    }
-  }
-
+  
+  #ifdef GHOSTTY
+  Config.ghostty_mode = 1;
+  Config.kitty_mode = 0;
+  #else
+  Config.ghostty_mode = 0;
+  Config.kitty_mode = 1;
+  #endif
   // Handle configurations that require to be computed.
   Config.width_chars = DEFAULT_WIDTH_CHARS * Config.zoom;
   Config.height_chars = DEFAULT_HEIGHT_CHARS * Config.zoom;
 }
 
 void draw_rectangle(void *fbptr, int x, int y, int w, int h, uint32_t color) {
-  uint8_t *fb = fbptr;
+  uint8_t *fb = (uint8_t *)fbptr;
 
   for (int i = 0; i < h; i++) {
     for (int j = 0; j < w; j++) {
@@ -418,64 +407,99 @@ uint32_t toColor(mu_Color color) {
   return (color.r << 16) | (color.g << 8) | color.b;
 }
 
-void test_window(mu_Context *ctx) {
-  if (mu_begin_window(ctx, "Log Window", mu_rect(0, 0, SCREEN_W, SCREEN_H))) {
-    /* output text panel */
-    mu_layout_row(ctx, 1, (int[]){-1}, -25);
-    mu_begin_panel(ctx, "Log Output");
-    mu_layout_row(ctx, 1, (int[]){-1}, -1);
-    mu_text(ctx, "Hello");
-    mu_end_panel(ctx);
 
-    /* input textbox + submit button */
-    static char buf[128];
-    int submitted = 0;
-    mu_layout_row(ctx, 2, (int[]){-70, -1}, 0);
-    if (mu_textbox(ctx, buf, sizeof(buf)) & MU_RES_SUBMIT) {
-      mu_set_focus(ctx, ctx->last_id);
-      submitted = 1;
-    }
-    if (mu_button(ctx, "Submit")) {
-      submitted = 1;
-    }
-    if (submitted) {
-      printf("\rSubmitted: %s", buf);
-      buf[0] = '\0';
-    }
+static mu_Context ctx = {0};
+static mu_Rect unclipped_rect = { 0, 0, 0x1000000, 0x1000000 };
 
-    mu_end_window(ctx);
-  }
+void muButton(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+    bool result = mu_button(&ctx, *v8::String::Utf8Value(isolate, args[0]->ToString(context).ToLocalChecked()));
+    args.GetReturnValue().Set(v8::Boolean::New(isolate, result));
 }
 
-int main(int argc, char **argv) {
-  mu_Context ctx;
-  mu_init(&ctx);
-  ctx.text_width = text_width;
-  ctx.text_height = text_height;
+void muLabel(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+    mu_label(&ctx, *v8::String::Utf8Value(isolate, args[0]->ToString(context).ToLocalChecked()));
+}
 
-  parse_config(argc, argv);
+void muSlider(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+    int min = args[0]->Int32Value(context).FromJust();
+    int max = args[1]->Int32Value(context).FromJust();
+    float value = args[2]->NumberValue(context).FromJust();
+    mu_slider(&ctx, &value, min, max);
+    args.GetReturnValue().Set(v8::Number::New(isolate, value));
+}
 
-  /* Initialize Kitty graphics */
-  long kitty_id;
-  uint8_t *fb = kitty_init(Config.width, Config.height, &kitty_id);
+void muCheckbox(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+    int checked = args[0]->BooleanValue(isolate);
+    mu_checkbox(&ctx, *v8::String::Utf8Value(isolate, args[1]->ToString(context).ToLocalChecked()), &checked);
+    args.GetReturnValue().Set(v8::Boolean::New(isolate, checked));
+}
 
-  // Enable raw mode for keyboard input
-  enable_raw_mode();
+void muTextbox(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+    char buf[128];
+    strcpy(buf, *v8::String::Utf8Value(isolate, args[0]->ToString(context).ToLocalChecked()));
+    mu_textbox(&ctx, buf, sizeof(buf));
+    args.GetReturnValue().Set(v8::String::NewFromUtf8(isolate, buf).ToLocalChecked());
+}
 
-  // run the emulation/input/render loop
-  int frame = 0;
-  int quit_requested = 0;
+void muBeginWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+    mu_begin_window(&ctx, *v8::String::Utf8Value(isolate, args[0]->ToString(context).ToLocalChecked()), mu_rect(0, 0, Config.width, Config.height));
+}
 
-  while (!quit_requested) {
-    // Handle input
-    quit_requested = process_input(&ctx);
+void muLayoutRow(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    // muLayoutRow(items, height, w1, w2, ...)
+    int items = args[0]->Int32Value(args.GetIsolate()->GetCurrentContext()).FromJust();
+    int height = args[1]->Int32Value(args.GetIsolate()->GetCurrentContext()).FromJust();
+    int* widths = new int[items];
+    for (int i = 0; i < items; i++) {
+        widths[i] = args[2 + i]->Int32Value(args.GetIsolate()->GetCurrentContext()).FromJust();
+    }
 
-    // ui
+    mu_layout_row(&ctx, items, widths, height);
+    delete[] widths; // Clean up allocated memory
+}
+
+void muEndWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    mu_end_window(&ctx);
+}
+
+void updateInput(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    int exit = process_input(&ctx);
+    args.GetReturnValue().Set(v8::Boolean::New(isolate, exit));
+}
+
+void clearBackground(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    uint32_t color = 0x000000; // Default black background
+    if (args.Length() > 0 && args[0]->IsUint32()) {
+        color = args[0]->Uint32Value(isolate->GetCurrentContext()).FromJust();
+    }
+
+    draw_rectangle(fb, 0, 0, Config.width, Config.height,
+                     color);
+}
+
+void muBegin(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    (void)args;
     mu_begin(&ctx);
-    test_window(&ctx);
+}
+
+void muEnd(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    (void)args;
     mu_end(&ctx);
 
-    // bind renderer
     mu_Command *cmd = NULL;
     while (mu_next_command(&ctx, &cmd)) {
       switch (cmd->type) {
@@ -495,15 +519,71 @@ int main(int argc, char **argv) {
         break;
       }
     }
-
-    // Update display using Kitty protocol
-    kitty_update_display(kitty_id, frame++, fb);
-  }
-
-  // Cleanup
-  free(fb);
-  disable_raw_mode();
-  printf("\nEmulator terminated.\n");
-
-  return 0;
+    kitty_update_display();
 }
+
+
+
+int getTextWidth(mu_Font font, const char *str, int len)
+{
+    int x = 10;
+    return x;
+}
+
+int getTextHeight(mu_Font font)
+{
+    return FONT_SIZE;
+}
+
+void initWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    auto isolate = args.GetIsolate();
+    auto context = isolate->GetCurrentContext();
+
+    int width = SCREEN_W;
+    if (args.Length() > 0) width = args[0]->Int32Value(context).FromJust();
+
+    int height = SCREEN_H;
+    if (args.Length() > 1) height = args[1]->Int32Value(context).FromJust();
+
+    const char *title = "Hardcoded Title";
+    if (args.Length() > 2) {
+        title = strdup(*v8::String::Utf8Value(isolate, args[2]->ToString(context).ToLocalChecked())); // memory leak
+    }
+    mu_init(&ctx);
+    ctx.text_width = getTextWidth;
+    ctx.text_height = getTextHeight;
+    parse_config();
+    kitty_init(Config.width, Config.height);
+
+    // Enable raw mode for keyboard input
+    enable_raw_mode();
+}
+
+void close(const v8::FunctionCallbackInfo<v8::Value> &args) {
+    (void)args;
+    // Close the window and clean up resources
+    free(fb);
+    disable_raw_mode();
+    fb = NULL;
+    ctx = {0};
+    kitty_id = 0; // Reset Kitty ID
+}
+
+void Initialize(v8::Local<v8::Object> exports) {
+    NODE_SET_METHOD(exports, "init", initWindow);
+    NODE_SET_METHOD(exports, "close", close);
+    NODE_SET_METHOD(exports, "updateInput", updateInput);
+    NODE_SET_METHOD(exports, "clearBackground", clearBackground);
+    NODE_SET_METHOD(exports, "begin", muBegin);
+    NODE_SET_METHOD(exports, "end", muEnd);
+    NODE_SET_METHOD(exports, "beginWindow", muBeginWindow);
+    NODE_SET_METHOD(exports, "endWindow", muEndWindow);
+    NODE_SET_METHOD(exports, "button", muButton);
+    NODE_SET_METHOD(exports, "label", muLabel);
+    NODE_SET_METHOD(exports, "slider", muSlider);
+    NODE_SET_METHOD(exports, "checkbox", muCheckbox);
+    NODE_SET_METHOD(exports, "textbox", muTextbox);
+    NODE_SET_METHOD(exports, "layoutRow", muLayoutRow);
+}
+
+NODE_MODULE(NODE_GYP_MODULE_NAME, Initialize)

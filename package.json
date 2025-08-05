@@ -1,0 +1,20 @@
+{
+  "name": "micro-ui",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "node-gyp configure build && babel index.jsx -o index.js",
+    "start": "pnpm build && node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@babel/cli": "^7.28.0",
+    "@babel/preset-react": "^7.27.1",
+    "react": "^18.1.0",
+    "react-reconciler": "^0.28.0",
+    "node-gyp": "^11.3.0"
+  }
+}
