@@ -12,7 +12,7 @@ extern "C" {
 #include <termios.h>
 #include <unistd.h>
 // Bitmap font for rendering text.
-#include "font.h"
+#include "c64_font.h"
 
 /* Global configuration (mostly from command line options). */
 struct {
