@@ -14,17 +14,16 @@
 
 /* Global configuration (mostly from command line options). */
 struct {
-  int ghostty_mode;   // Use non standard Kitty protocol that works with
-                      // Ghostty, and allows animation, but is incompatible
-                      // with Kitty (default).
-  int kitty_mode;     // Use graphics protocol with animation codes, this
-                      // is needed for the Kitty terminal.
-  char *prg_filename; // PRG to execute, if one was given at startup.
-  float zoom;         // display zoom level.
-  int width_chars;    // display width in characters.
-  int height_chars;   // display height in characters.
-  int width;          // display width in pixels.
-  int height;         // display height in pixels.
+  int ghostty_mode; // Use non standard Kitty protocol that works with
+                    // Ghostty, and allows animation, but is incompatible
+                    // with Kitty (default).
+  int kitty_mode;   // Use graphics protocol with animation codes, this
+                    // is needed for the Kitty terminal.
+  float zoom;       // display zoom level.
+  int width_chars;  // display width in characters.
+  int height_chars; // display height in characters.
+  int width;        // display width in pixels.
+  int height;       // display height in pixels.
 } Config;
 
 #define MIN_ZOOM 0.25           // Minimum zoom level.
@@ -289,7 +288,6 @@ void crt_set_pixel(void *fbptr, int x, int y, uint32_t color) {
 void parse_config(int argc, char **argv) {
   Config.ghostty_mode = 1;
   Config.kitty_mode = 0;
-  Config.prg_filename = NULL;
   Config.zoom = DEFAULT_ZOOM;
   Config.width = SCREEN_W;
   Config.height = SCREEN_H;
