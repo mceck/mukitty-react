@@ -98,12 +98,15 @@ long kitty_id = 0;  // Kitty graphics ID
 
 // Initialize Kitty graphics protocol
 uint8_t *kitty_init(int width, int height) {
-  // Initialize random seed for image ID
+  // Generate a random ID for the Kitty graphics protocol session
   srand(time(NULL));
   kitty_id = rand();
 
   // Allocate framebuffer memory
-  fb = (uint8_t *)malloc(width * height * 3);
+  if (fb) {
+    delete[] fb;
+  }
+  fb = new uint8_t[width * height * 3];
   memset(fb, 0, width * height * 3);
   return fb;
 }
@@ -114,7 +117,7 @@ void kitty_update_display() {
   // Calculate base64 encoded size
   size_t bitmap_size = Config.width * Config.height * 3;
   size_t encoded_size = 4 * ((bitmap_size + 2) / 3);
-  char *encoded_data = (char *)malloc(encoded_size + 1);
+  char *encoded_data = new char[encoded_size + 1];
 
   if (!encoded_data) {
     fprintf(stderr, "Memory allocation failed\n");
@@ -187,7 +190,7 @@ void kitty_update_display() {
   }
 
   // Clean up
-  free(encoded_data);
+  delete[] encoded_data;
 }
 
 struct winsize get_terminal_size() {
@@ -211,10 +214,25 @@ int process_input(mu_Context *ctx) {
   // Simple key press handling
   if (nread == 1) {
     if (buf[0] == 27) { // Escape key
-      return 1;         // Request quit
+      printf("\rEscape key pressed, quitting...");
+      return 1; // Request quit
     }
-    // mu_input_keydown(ctx, buf[0]);
-    mu_input_text(ctx, buf);
+    if (buf[0] == 127) {
+      printf("\rBackspace key pressed");
+      mu_input_keydown(ctx, MU_KEY_BACKSPACE);
+      return 0;
+    }
+    if (isprint(buf[0])) {
+      printf("\rKey pressed: %c", buf[0]);
+      mu_input_text(ctx, buf);
+      return 0;
+    }
+    if (buf[0] == 13) {
+      printf("\rEnter key pressed");
+      mu_input_keydown(ctx, MU_KEY_RETURN);
+      return 0;
+    }
+    printf("\rNon-printable key pressed: %d", buf[0]);
     return 0;
   }
 
@@ -241,9 +259,13 @@ int process_input(mu_Context *ctx) {
       // Handle scroll wheel
       if ((button & 64)) {
         if (button == 64) { // wheel up
-          mu_input_scroll(ctx, 0, -5);
+          printf("\rMouse wheel up");
+          mu_input_scroll(ctx, 0, -FONT_SIZE);
         } else if (button == 65) { // wheel down
-          mu_input_scroll(ctx, 0, 5);
+          printf("\rMouse wheel down");
+          mu_input_scroll(ctx, 0, FONT_SIZE);
+        } else {
+          printf("\rUnknown scroll event: %d", button);
         }
       } else { // Handle button press/release
         int mu_button = 0;
@@ -262,8 +284,12 @@ int process_input(mu_Context *ctx) {
         }
 
         if (event_type == 'M') { // Press
+          printf("\rMouse button %d pressed at %d,%d [%d,%d]", mu_button,
+                 pixel_x, pixel_y, x, y);
           mu_input_mousedown(ctx, pixel_x, pixel_y, mu_button);
         } else if (event_type == 'm') { // Release
+          printf("\rMouse button %d released at %d,%d [%d,%d]", mu_button,
+                 pixel_x, pixel_y, x, y);
           mu_input_mouseup(ctx, pixel_x, pixel_y, mu_button);
         }
       }
@@ -271,7 +297,7 @@ int process_input(mu_Context *ctx) {
     return 0;
   }
 
-  printf("\rUnrecognized input: %.*s", nread, buf);
+  printf("\rUnrecognized input: %d - %d", nread, buf[0]);
   return 0;
 }
 
@@ -443,7 +469,7 @@ void muTextbox(const v8::FunctionCallbackInfo<v8::Value> &args) {
   char buf[128];
   strcpy(buf, *v8::String::Utf8Value(
                   isolate, args[0]->ToString(context).ToLocalChecked()));
-  mu_textbox(&ctx, buf, sizeof(buf));
+  mu_textbox_ex(&ctx, buf, sizeof(buf), MU_OPT_HOLDFOCUS);
   args.GetReturnValue().Set(
       v8::String::NewFromUtf8(isolate, buf).ToLocalChecked());
 }
@@ -469,11 +495,40 @@ void muRect(const v8::FunctionCallbackInfo<v8::Value> &args) {
 void muBeginWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
   auto isolate = args.GetIsolate();
   auto context = isolate->GetCurrentContext();
-  mu_begin_window_ex(&ctx,
-                     *v8::String::Utf8Value(
-                         isolate, args[0]->ToString(context).ToLocalChecked()),
-                     mu_rect(0, 0, Config.width, Config.height),
-                     MU_OPT_NOCLOSE | MU_OPT_NOTITLE);
+  char *name = strdup(*v8::String::Utf8Value(
+      isolate, args[0]->ToString(context).ToLocalChecked()));
+  int top = 0;
+  int left = 0;
+  int width = Config.width;
+  int height = Config.height;
+  int opt = MU_OPT_NOCLOSE | MU_OPT_NOTITLE;
+  if (strcmp(name, "root") != 0) {
+    top = args[1]->Int32Value(context).FromJust();
+    left = args[2]->Int32Value(context).FromJust();
+    width = args[3]->Int32Value(context).FromJust();
+    height = args[4]->Int32Value(context).FromJust();
+    opt = MU_OPT_HOLDFOCUS;
+    mu_Container *cnt = mu_get_container(&ctx, name);
+    if (cnt && cnt->open) {
+      mu_bring_to_front(&ctx, cnt);
+    }
+  }
+  int ret =
+      mu_begin_window_ex(&ctx, name, mu_rect(left, top, width, height), opt);
+
+  if (!ret && strcmp(name, "root") != 0) {
+    // "reopen" the modal after close because the show/hide is managed outside
+    mu_Container *cnt = mu_get_container(&ctx, name);
+    if (cnt) {
+      cnt->open = 1;
+    }
+  }
+  delete[] name;
+  args.GetReturnValue().Set(v8::Boolean::New(isolate, ret));
+}
+
+void muEndWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
+  mu_end_window(&ctx);
 }
 
 void muLayoutRow(const v8::FunctionCallbackInfo<v8::Value> &args) {
@@ -494,7 +549,7 @@ void muLayoutRow(const v8::FunctionCallbackInfo<v8::Value> &args) {
   }
 
   mu_layout_row(&ctx, items, widths, height);
-  delete[] widths; // Clean up allocated memory
+  delete[] widths;
 }
 
 void muBeginColumn(const v8::FunctionCallbackInfo<v8::Value> &args) {
@@ -505,10 +560,6 @@ void muBeginColumn(const v8::FunctionCallbackInfo<v8::Value> &args) {
 void muEndColumn(const v8::FunctionCallbackInfo<v8::Value> &args) {
   (void)args;
   mu_layout_end_column(&ctx);
-}
-
-void muEndWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
-  mu_end_window(&ctx);
 }
 
 void updateInput(const v8::FunctionCallbackInfo<v8::Value> &args) {
@@ -556,6 +607,41 @@ void muEnd(const v8::FunctionCallbackInfo<v8::Value> &args) {
     }
   }
   kitty_update_display();
+}
+
+void muBeginTreeNode(const v8::FunctionCallbackInfo<v8::Value> &args) {
+  auto isolate = args.GetIsolate();
+  auto context = isolate->GetCurrentContext();
+  int opt = 0;
+  if (args.Length() > 1 && args[1]->BooleanValue(isolate)) {
+    opt = MU_OPT_EXPANDED;
+  }
+  int open = mu_begin_treenode_ex(
+      &ctx,
+      *v8::String::Utf8Value(isolate,
+                             args[0]->ToString(context).ToLocalChecked()),
+      opt);
+  args.GetReturnValue().Set(v8::Boolean::New(isolate, open));
+}
+
+void muEndTreeNode(const v8::FunctionCallbackInfo<v8::Value> &args) {
+  (void)args;
+  mu_end_treenode(&ctx);
+}
+
+void muHeader(const v8::FunctionCallbackInfo<v8::Value> &args) {
+  auto isolate = args.GetIsolate();
+  auto context = isolate->GetCurrentContext();
+  int opt = 0;
+  if (args.Length() > 1 && args[1]->BooleanValue(isolate)) {
+    opt = MU_OPT_EXPANDED;
+  }
+  int open =
+      mu_header_ex(&ctx,
+                   *v8::String::Utf8Value(
+                       isolate, args[0]->ToString(context).ToLocalChecked()),
+                   opt);
+  args.GetReturnValue().Set(v8::Boolean::New(isolate, open));
 }
 
 int getTextWidth(mu_Font font, const char *str, int len) {
@@ -608,7 +694,7 @@ void initWindow(const v8::FunctionCallbackInfo<v8::Value> &args) {
 void close(const v8::FunctionCallbackInfo<v8::Value> &args) {
   (void)args;
   // Close the window and clean up resources
-  free(fb);
+  delete[] fb;
   disable_raw_mode();
   fb = NULL;
   ctx = {0};
@@ -634,6 +720,9 @@ void Initialize(v8::Local<v8::Object> exports) {
   NODE_SET_METHOD(exports, "layoutRow", muLayoutRow);
   NODE_SET_METHOD(exports, "beginColumn", muBeginColumn);
   NODE_SET_METHOD(exports, "endColumn", muEndColumn);
+  NODE_SET_METHOD(exports, "beginTreeNode", muBeginTreeNode);
+  NODE_SET_METHOD(exports, "endTreeNode", muEndTreeNode);
+  NODE_SET_METHOD(exports, "header", muHeader);
 }
 
 NODE_MODULE(NODE_GYP_MODULE_NAME, Initialize)

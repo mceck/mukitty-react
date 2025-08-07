@@ -56,6 +56,23 @@ const hostConfig = {
   appendInitialChild(parentInstance, child) {
     parentInstance.children.push(child);
   },
+  appendChild(parentInstance, child) {
+    parentInstance.children.push(child);
+  },
+  insertInContainerBefore(rootContainerInstance, child, beforeChild) {
+    const index = rootContainerInstance.children.indexOf(beforeChild);
+    if (index !== -1) {
+      rootContainerInstance.children.splice(index, 0, child);
+    } else {
+      rootContainerInstance.children.push(child);
+    }
+  },
+  removeChildFromContainer(rootContainerInstance, child) {
+    const index = rootContainerInstance.children.indexOf(child);
+    if (index !== -1) {
+      rootContainerInstance.children.splice(index, 1);
+    }
+  },
   finalizeInitialChildren(...args) {
     return true;
   },
@@ -93,66 +110,130 @@ function renderTextElement(element) {
   return element.children?.map(renderTextElement).join('') || '';
 }
 function renderElement(element) {
-  let text = '';
   switch (element.type) {
     case 'window':
-      mukitty.beginWindow('Mukitty React');
-      for (let child of element.children) {
-        renderElement(child);
+      {
+        mukitty.beginWindow(element.id ?? 'root');
+        for (let child of element.children) {
+          renderElement(child);
+        }
+        mukitty.endWindow();
       }
-      mukitty.endWindow();
+      break;
+    case 'modal':
+      {
+        const open = mukitty.beginWindow(
+          element.title,
+          element.top,
+          element.left,
+          element.width,
+          element.height
+        );
+        if (open) {
+          for (let child of element.children) {
+            renderElement(child);
+          }
+          mukitty.endWindow();
+        } else {
+          element.onClose?.();
+        }
+      }
       break;
     case 'button':
-      for (let child of element.children) {
-        text += renderTextElement(child);
-      }
-      if (mukitty.button(text)) {
-        element.onClick?.();
+      {
+        let text = '';
+        for (let child of element.children) {
+          text += renderTextElement(child);
+        }
+        if (mukitty.button(text)) {
+          element.onClick?.();
+        }
       }
       break;
     case 'row':
-      if (element.items) {
-        mukitty.layoutRow(element.items, element.height, ...element.widths);
-      } else {
+      {
+        const widths = element.widths ?? [];
+        mukitty.layoutRow(element.items, element.height, ...widths);
+        for (let child of element.children) {
+          renderElement(child);
+        }
         mukitty.layoutRow();
-      }
-      for (let child of element.children) {
-        renderElement(child);
       }
       break;
     case 'col':
-      mukitty.beginColumn();
-      for (let child of element.children) {
-        renderElement(child);
+      {
+        mukitty.beginColumn();
+        for (let child of element.children) {
+          renderElement(child);
+        }
+        mukitty.endColumn();
       }
-      mukitty.endColumn();
       break;
     case 'label':
-      for (let child of element.children) {
-        text += renderTextElement(child);
+      {
+        let text = '';
+        for (let child of element.children) {
+          text += renderTextElement(child);
+        }
+        mukitty.label(text);
       }
-      mukitty.label(text);
       break;
     case 'slider':
-      const val = mukitty.slider(element.min, element.max, element.value);
-      element.onChange?.(val);
+      {
+        const val = mukitty.slider(element.min, element.max, element.value);
+        element.onChange?.(val);
+      }
       break;
     case 'checkbox':
-      const checked = mukitty.checkbox(element.checked, element.label);
-      element.onChange?.(checked);
+      {
+        const checked = mukitty.checkbox(element.checked, element.label);
+        element.onChange?.(checked);
+      }
       break;
     case 'input':
-      const value = mukitty.textbox(element.value);
-      element.onChange?.(value);
+      {
+        const value = mukitty.textbox(element.value);
+        element.onChange?.(value);
+      }
       break;
     case 'span':
-      for (let child of element.children) {
-        text += renderTextElement(child);
+      {
+        let text = '';
+        for (let child of element.children) {
+          text += renderTextElement(child);
+        }
+        mukitty.text(text);
       }
-      mukitty.text(text);
       break;
     case 'rect':
-      mukitty.rect(element.color || 0xffffff);
+      {
+        mukitty.rect(element.color || 0xffffff);
+      }
+      break;
+    case 'tree':
+      {
+        const open = mukitty.beginTreeNode(element.title, element.startOpened);
+        if (!open) {
+          element.onClose?.();
+          return;
+        }
+        for (let child of element.children) {
+          renderElement(child);
+        }
+        mukitty.endTreeNode();
+      }
+      break;
+    case 'header':
+      {
+        const open = mukitty.header(element.title, element.startOpened);
+        if (!open) {
+          element.onClose?.();
+          return;
+        }
+        for (let child of element.children) {
+          renderElement(child);
+        }
+      }
       break;
     default:
       throw `Unknown element type: ${element.type}`;
