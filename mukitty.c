@@ -1,4 +1,4 @@
-// Node.js plugin that integrates together Raylib and MicroUI
+// Node.js plugin that integrates MicroUI rendering with Kitty terminal graphics.
 #include <ctype.h>
 #include <node_api.h>
 #include <stdio.h>
@@ -61,10 +61,10 @@ struct {
                              // with Kitty.
     bool kitty_mode;         // Use graphics protocol with animation codes, this
                              // is needed for the Kitty terminal.
-    int width_chars;    // display width in characters.
-    int height_chars;   // display height in characters.
-    int width;          // display width in pixels.
-    int height;         // display height in pixels.
+    int width_chars;         // display width in characters.
+    int height_chars;        // display height in characters.
+    int width;               // display width in pixels.
+    int height;              // display height in pixels.
     unsigned long render_id; // Unique ID for the current render session.
 } Config;
 
