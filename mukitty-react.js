@@ -153,7 +153,7 @@ function renderElement(element) {
     case 'row':
       {
         const widths = element.widths ?? [];
-        mukitty.layoutRow(element.items, element.height, ...widths);
+        mukitty.layoutRow(element.height, ...widths);
         for (let child of element.children) {
           renderElement(child);
         }
@@ -192,11 +192,14 @@ function renderElement(element) {
       break;
     case 'input':
       {
-        const value = mukitty.textbox(element.value);
-        element.onChange?.(value);
+        const { text, submit } = mukitty.textbox(element.value);
+        element.onChange?.(text);
+        if (submit) {
+          element.onSubmit?.(text);
+        }
       }
       break;
-    case 'span':
+    case 'text':
       {
         let text = '';
         for (let child of element.children) {
@@ -235,20 +238,28 @@ function renderElement(element) {
         }
       }
       break;
+    case 'panel':
+      {
+        mukitty.beginPanel(element.title);
+        for (let child of element.children) {
+          renderElement(child);
+        }
+        mukitty.endPanel();
+      }
+      break;
     default:
       throw `Unknown element type: ${element.type}`;
   }
 }
 
-exports.render = (element, ttyMode = 'ghostty') => {
+exports.render = (element) => {
   const container = MukittyRenderer.createContainer({ type: 'window' }, 0);
   MukittyRenderer.updateContainer(element, container);
 
-  mukitty.init(0, 0, ttyMode);
+  mukitty.init();
   while (true) {
-    const stop = mukitty.updateInput();
+    const stop = mukitty.handleInputs();
     if (stop) break;
-    mukitty.clearBackground();
     mukitty.begin();
     renderElement(container.containerInfo);
     mukitty.end();

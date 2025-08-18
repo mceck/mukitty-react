@@ -2,7 +2,7 @@
     "targets": [
         {
             "target_name": "mukitty",
-            "sources": ["mukitty.cpp", "microui.c"],
+            "sources": ["mukitty.c", "microui.c"],
             "conditions": [
                 ['OS=="linux"', {}],
                 ['OS=="mac"', {}],

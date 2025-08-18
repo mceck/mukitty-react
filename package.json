@@ -4,8 +4,7 @@
   "main": "index.js",
   "scripts": {
     "build": "node-gyp configure build && babel index.jsx -o index.js",
-    "start": "pnpm build && node index.js",
-    "node": "pnpm build && node mukitty.js"
+    "start": "node-gyp configure build && babel index.jsx -o index.js && node index.js"
   },
   "keywords": [],
   "author": "",
