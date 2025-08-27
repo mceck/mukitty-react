@@ -95,7 +95,7 @@ const App = () => {
         <label>Input {inputValue}</label>
         <input value={inputValue} onChange={setInputValue} />
       </row>
-      <row height={20} widths={[200, -1]}>
+      <row height={30} widths={[200, -1]}>
         <label>Slider value: {slider.toFixed(2)}</label>
         <slider min={0} max={255} value={slider} onChange={setSlider} />
       </row>

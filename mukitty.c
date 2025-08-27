@@ -20,6 +20,8 @@
 #define RESH 8 // Character height in pixels.
 
 #define MAX_STR_LEN 256
+#define TARGET_FPS 60.0
+#define FRAME_TIME (1.0 / TARGET_FPS)
 
 #define TRACE_LOGS 1
 #define LOG(fmt, ...) TRACE_LOGS ? printf("\33[2K\r" fmt, ##__VA_ARGS__) : 0
@@ -590,18 +592,31 @@ double get_time_sec() {
     return tv.tv_sec + (tv.tv_usec / 1000000.0);
 }
 
-void print_fps() {
+void limit_fps() {
     static double last_frame_ts = 0.0;
+    static double last_fps_ts = 0.0;
     static uint32_t frame_count = 0;
-    frame_count++;
+
     double current_time = get_time_sec();
-    double elapsed = (current_time - last_frame_ts);
-    if (elapsed >= 1.0) {
-        double fps = (double)frame_count / elapsed;
-        LOG("FPS: %.2f", fps);
-        frame_count = 0;
-        last_frame_ts = current_time;
+    double elapsed_frame = current_time - last_frame_ts;
+
+    // cap fps
+    if (last_frame_ts && elapsed_frame < FRAME_TIME) {
+        useconds_t u = (useconds_t)((FRAME_TIME - elapsed_frame) * 1000000.0);
+        usleep(u);
+        current_time = get_time_sec();
     }
+
+    // log fps
+    frame_count++;
+    if (current_time - last_fps_ts >= 1.0) {
+        double fps = frame_count / (current_time - last_fps_ts);
+        LOG("FPS: %.2f", fps);
+        frame_count = 1;
+        last_fps_ts = current_time;
+    }
+
+    last_frame_ts = current_time;
 }
 
 napi_value handleInputs(napi_env env, napi_callback_info info) {
@@ -642,7 +657,7 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
         }
     }
     kitty_update_display();
-    print_fps();
+    limit_fps();
     return NULL;
 }
 
