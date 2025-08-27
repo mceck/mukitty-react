@@ -20,6 +20,7 @@
 #define RESH 8 // Character height in pixels.
 
 #define MAX_STR_LEN 256
+#define MAX_INPUT_IDS 32
 #define TARGET_FPS 60.0
 #define FRAME_TIME (1.0 / TARGET_FPS)
 
@@ -486,13 +487,17 @@ napi_value muCheckbox(napi_env env, napi_callback_info info) {
 
 napi_value muTextbox(napi_env env, napi_callback_info info) {
     NODE_PARSE_ARGS();
-    static char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    int id;
+    napi_get_value_int32(env, args[0], &id);
+    if (id < 0) id = 0;
+    if (id >= MAX_INPUT_IDS) id = id % MAX_INPUT_IDS;
+    static char text[MAX_INPUT_IDS][MAX_STR_LEN];
+    NODE_GET_STRING(1, text[id]);
 
-    int submit = mu_textbox(&ctx, text, sizeof(text)) & MU_RES_SUBMIT;
+    int submit = mu_textbox(&ctx, text[id], sizeof(text[id])) & MU_RES_SUBMIT;
     napi_value result, text_val, submit_val;
     napi_create_object(env, &result);
-    napi_create_string_utf8(env, text, NAPI_AUTO_LENGTH, &text_val);
+    napi_create_string_utf8(env, text[id], NAPI_AUTO_LENGTH, &text_val);
     napi_get_boolean(env, submit != 0, &submit_val);
     napi_set_named_property(env, result, "text", text_val);
     napi_set_named_property(env, result, "submit", submit_val);

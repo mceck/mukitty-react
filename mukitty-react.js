@@ -4,6 +4,24 @@ const mukitty = require('./build/Release/mukitty.node');
 
 const TRACE = false; // Set to true for debugging
 
+class ObjectIdGenerator {
+  constructor() {
+    this.idByTypes = {};
+  }
+
+  nextId(type) {
+    if (!this.idByTypes[type]) {
+      this.idByTypes[type] = 0;
+    }
+    return this.idByTypes[type]++;
+  }
+
+  reset() {
+    this.idByTypes = {};
+  }
+}
+const objectIdGenerator = new ObjectIdGenerator();
+
 const hostConfig = {
   noTimeout: -1,
   isPrimaryRenderer: true,
@@ -16,7 +34,9 @@ const hostConfig = {
   prepareForCommit: (...args) => {
     return null;
   },
-  resetAfterCommit: (...args) => {},
+  resetAfterCommit: (...args) => {
+    objectIdGenerator.reset();
+  },
   // resolveUpdatePriority: (...args) => {
   //   return () => 0;
   // },
@@ -41,8 +61,11 @@ const hostConfig = {
     } else {
       elementProps.children = [];
     }
-    const element = { type, ...elementProps };
-    return element;
+    if (elementProps.id === undefined && type !== 'window') {
+      elementProps.id = objectIdGenerator.nextId(type);
+    }
+
+    return { type, ...elementProps };
   },
   detachDeletedInstance(...args) {
     return null;
@@ -192,7 +215,7 @@ function renderElement(element) {
       break;
     case 'input':
       {
-        const { text, submit } = mukitty.textbox(element.value);
+        const { text, submit } = mukitty.textbox(element.id, element.value);
         element.onChange?.(text);
         if (submit) {
           element.onSubmit?.(text);

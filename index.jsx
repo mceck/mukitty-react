@@ -76,6 +76,7 @@ const App = () => {
   const [slider, setSlider] = React.useState(128);
   const [checked, setChecked] = React.useState(true);
   const [inputValue, setInputValue] = React.useState('');
+  const [inputValue2, setInputValue2] = React.useState('');
   const [isOpen, setIsOpen] = React.useState(false);
 
   const sliderRed = React.useMemo(() => slider << 16, [slider]);
@@ -94,6 +95,8 @@ const App = () => {
       <row height={20} widths={[200, -1]}>
         <label>Input {inputValue}</label>
         <input value={inputValue} onChange={setInputValue} />
+        <label>Input2 {inputValue2}</label>
+        <input value={inputValue2} onChange={setInputValue2} />
       </row>
       <row height={30} widths={[200, -1]}>
         <label>Slider value: {slider.toFixed(2)}</label>
