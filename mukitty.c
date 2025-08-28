@@ -27,30 +27,30 @@
 #define TRACE_LOGS 1
 #define LOG(fmt, ...) TRACE_LOGS ? printf("\33[2K\r" fmt, ##__VA_ARGS__) : 0
 
-#define NODE_PARSE_ARGS()                                 \
+#define node_parse_args()                                 \
     size_t argc;                                          \
     napi_get_cb_info(env, info, &argc, NULL, NULL, NULL); \
     napi_value args[argc];                                \
     napi_get_cb_info(env, info, &argc, args, NULL, NULL)
 
-#define NODE_GET_STRING(index, buf) \
+#define node_get_string(index, buf) \
     napi_get_value_string_utf8(env, args[index], buf, sizeof(buf), NULL);
 
-#define NODE_BOOL_TO_NAPI_VAL(value)       \
+#define node_bool_to_napi_val(value)       \
     ({                                     \
         napi_value _r;                     \
         napi_get_boolean(env, value, &_r); \
         _r;                                \
     })
 
-#define NODE_FLOAT_TO_NAPI_VAL(value)                \
+#define node_float_to_napi_val(value)                \
     ({                                               \
         napi_value _r;                               \
         napi_create_double(env, (double)value, &_r); \
         _r;                                          \
     })
 
-#define NODE_EXPORT_FN(name, func)                            \
+#define node_export_fn(name, func)                            \
     do {                                                      \
         napi_value _fn;                                       \
         napi_create_function(env, NULL, 0, func, NULL, &_fn); \
@@ -70,6 +70,10 @@ struct {
     int height;              // display height in pixels.
     unsigned long render_id; // Unique ID for the current render session.
 } Config;
+static struct {
+    int x, y, w, h;
+    bool enabled;
+} clip_rect = {0};
 
 struct termios orig_termios;
 static uint8_t *fb = NULL; // Framebuffer pointer
@@ -331,6 +335,13 @@ int process_input(mu_Context *ctx) {
 void crt_set_pixel(int x, int y, uint32_t color) {
     if (x >= Config.width || y >= Config.height)
         return;
+    if (clip_rect.enabled) {
+        if (x < clip_rect.x || y < clip_rect.y ||
+            x >= clip_rect.x + clip_rect.w ||
+            y >= clip_rect.y + clip_rect.h) {
+            return; // Outside clipping region
+        }
+    }
 
     uint8_t *dst = fb + (x * 3 + y * Config.width * 3);
     dst[0] = (color >> 16) & 0xff; // R
@@ -408,6 +419,18 @@ void draw_icon(int id, mu_Rect rect, mu_Color color) {
     draw_char(x, y, id, toColor(color));
 }
 
+void set_clip_rect(int x, int y, int w, int h) {
+    if (w == 0x1000000 && h == 0x1000000) {
+        clip_rect.enabled = false;
+    } else {
+        clip_rect.x = x;
+        clip_rect.y = y;
+        clip_rect.w = w;
+        clip_rect.h = h;
+        clip_rect.enabled = true;
+    }
+}
+
 void updateWindowSize(int width, int height) {
     if (fb && width == Config.width_chars && height == Config.height_chars) {
         return;
@@ -443,25 +466,25 @@ int getTextWidth(mu_Font font, const char *str, int len) {
 int getTextHeight(mu_Font font) { return FONT_SIZE; }
 
 napi_value muButton(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    node_get_string(0, text);
 
     bool result = mu_button(&ctx, text);
-    return NODE_BOOL_TO_NAPI_VAL(result);
+    return node_bool_to_napi_val(result);
 }
 
 napi_value muLabel(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    node_get_string(0, text);
 
     mu_label(&ctx, text);
     return NULL;
 }
 
 napi_value muSlider(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     int min, max;
     double value;
     napi_get_value_int32(env, args[0], &min);
@@ -470,29 +493,29 @@ napi_value muSlider(napi_env env, napi_callback_info info) {
 
     float float_value = (float)value;
     mu_slider(&ctx, &float_value, min, max);
-    return NODE_FLOAT_TO_NAPI_VAL(float_value);
+    return node_float_to_napi_val(float_value);
 }
 
 napi_value muCheckbox(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     bool checked;
     char text[MAX_STR_LEN];
     napi_get_value_bool(env, args[0], &checked);
-    NODE_GET_STRING(1, text);
+    node_get_string(1, text);
 
     int int_checked = checked;
     mu_checkbox(&ctx, text, &int_checked);
-    return NODE_BOOL_TO_NAPI_VAL(int_checked);
+    return node_bool_to_napi_val(int_checked);
 }
 
 napi_value muTextbox(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     int id;
     napi_get_value_int32(env, args[0], &id);
     if (id < 0) id = 0;
     if (id >= MAX_INPUT_IDS) id = id % MAX_INPUT_IDS;
     static char text[MAX_INPUT_IDS][MAX_STR_LEN];
-    NODE_GET_STRING(1, text[id]);
+    node_get_string(1, text[id]);
 
     int submit = mu_textbox(&ctx, text[id], sizeof(text[id])) & MU_RES_SUBMIT;
     napi_value result, text_val, submit_val;
@@ -505,16 +528,16 @@ napi_value muTextbox(napi_env env, napi_callback_info info) {
 }
 
 napi_value muText(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    node_get_string(0, text);
 
     mu_text(&ctx, text);
     return NULL;
 }
 
 napi_value muRect(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     uint32_t color;
     napi_get_value_uint32(env, args[0], &color);
 
@@ -527,9 +550,9 @@ napi_value muRect(napi_env env, napi_callback_info info) {
 }
 
 napi_value muBeginWindow(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char name[MAX_STR_LEN];
-    NODE_GET_STRING(0, name);
+    node_get_string(0, name);
 
     int top = 0, left = 0, width = Config.width, height = Config.height;
     int opt = MU_OPT_NOCLOSE | MU_OPT_NOTITLE | MU_OPT_NORESIZE;
@@ -553,7 +576,7 @@ napi_value muBeginWindow(napi_env env, napi_callback_info info) {
         // externally
         modalCnt->open = 1;
     }
-    return NODE_BOOL_TO_NAPI_VAL(ret != 0);
+    return node_bool_to_napi_val(ret != 0);
 }
 
 napi_value muEndWindow(napi_env env, napi_callback_info info) {
@@ -562,7 +585,7 @@ napi_value muEndWindow(napi_env env, napi_callback_info info) {
 }
 
 napi_value muLayoutRow(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     int height = 0, items = 0;
     int *widths = NULL;
     if (argc)
@@ -657,7 +680,8 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
             draw_icon(cmd->icon.id, cmd->icon.rect, cmd->icon.color);
             break;
         case MU_COMMAND_CLIP:
-            // TODO: handle clipping
+            set_clip_rect(cmd->clip.rect.x, cmd->clip.rect.y,
+                          cmd->clip.rect.w, cmd->clip.rect.h);
             break;
         }
     }
@@ -667,9 +691,9 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
 }
 
 napi_value muBeginTreeNode(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    node_get_string(0, text);
     int opt = 0;
     bool expanded;
     napi_get_value_bool(env, args[1], &expanded);
@@ -678,7 +702,7 @@ napi_value muBeginTreeNode(napi_env env, napi_callback_info info) {
     }
 
     int open = mu_begin_treenode_ex(&ctx, text, opt);
-    return NODE_BOOL_TO_NAPI_VAL(open != 0);
+    return node_bool_to_napi_val(open != 0);
 }
 
 napi_value muEndTreeNode(napi_env env, napi_callback_info info) {
@@ -687,9 +711,9 @@ napi_value muEndTreeNode(napi_env env, napi_callback_info info) {
 }
 
 napi_value muHeader(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    node_get_string(0, text);
     int opt = 0;
     bool expanded;
     napi_get_value_bool(env, args[1], &expanded);
@@ -698,13 +722,13 @@ napi_value muHeader(napi_env env, napi_callback_info info) {
     }
 
     int open = mu_header_ex(&ctx, text, opt);
-    return NODE_BOOL_TO_NAPI_VAL(open != 0);
+    return node_bool_to_napi_val(open != 0);
 }
 
 napi_value muBeginPanel(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     char text[MAX_STR_LEN];
-    NODE_GET_STRING(0, text);
+    node_get_string(0, text);
 
     mu_begin_panel(&ctx, text);
     return NULL;
@@ -716,7 +740,7 @@ napi_value muEndPanel(napi_env env, napi_callback_info info) {
 }
 
 napi_value initWindow(napi_env env, napi_callback_info info) {
-    NODE_PARSE_ARGS();
+    node_parse_args();
     mu_init(&ctx);
     ctx.text_width = getTextWidth;
     ctx.text_height = getTextHeight;
@@ -735,28 +759,28 @@ napi_value closeWindow(napi_env env, napi_callback_info info) {
 }
 
 napi_value Init(napi_env env, napi_value exports) {
-    NODE_EXPORT_FN("init", initWindow);
-    NODE_EXPORT_FN("close", closeWindow);
-    NODE_EXPORT_FN("handleInputs", handleInputs);
-    NODE_EXPORT_FN("begin", muBegin);
-    NODE_EXPORT_FN("end", muEnd);
-    NODE_EXPORT_FN("beginWindow", muBeginWindow);
-    NODE_EXPORT_FN("endWindow", muEndWindow);
-    NODE_EXPORT_FN("button", muButton);
-    NODE_EXPORT_FN("label", muLabel);
-    NODE_EXPORT_FN("slider", muSlider);
-    NODE_EXPORT_FN("checkbox", muCheckbox);
-    NODE_EXPORT_FN("textbox", muTextbox);
-    NODE_EXPORT_FN("text", muText);
-    NODE_EXPORT_FN("rect", muRect);
-    NODE_EXPORT_FN("layoutRow", muLayoutRow);
-    NODE_EXPORT_FN("beginColumn", muBeginColumn);
-    NODE_EXPORT_FN("endColumn", muEndColumn);
-    NODE_EXPORT_FN("beginTreeNode", muBeginTreeNode);
-    NODE_EXPORT_FN("endTreeNode", muEndTreeNode);
-    NODE_EXPORT_FN("header", muHeader);
-    NODE_EXPORT_FN("beginPanel", muBeginPanel);
-    NODE_EXPORT_FN("endPanel", muEndPanel);
+    node_export_fn("init", initWindow);
+    node_export_fn("close", closeWindow);
+    node_export_fn("handleInputs", handleInputs);
+    node_export_fn("begin", muBegin);
+    node_export_fn("end", muEnd);
+    node_export_fn("beginWindow", muBeginWindow);
+    node_export_fn("endWindow", muEndWindow);
+    node_export_fn("button", muButton);
+    node_export_fn("label", muLabel);
+    node_export_fn("slider", muSlider);
+    node_export_fn("checkbox", muCheckbox);
+    node_export_fn("textbox", muTextbox);
+    node_export_fn("text", muText);
+    node_export_fn("rect", muRect);
+    node_export_fn("layoutRow", muLayoutRow);
+    node_export_fn("beginColumn", muBeginColumn);
+    node_export_fn("endColumn", muEndColumn);
+    node_export_fn("beginTreeNode", muBeginTreeNode);
+    node_export_fn("endTreeNode", muEndTreeNode);
+    node_export_fn("header", muHeader);
+    node_export_fn("beginPanel", muBeginPanel);
+    node_export_fn("endPanel", muEndPanel);
 
     return exports;
 }
