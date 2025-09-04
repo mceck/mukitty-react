@@ -115,7 +115,16 @@ const App = () => {
           <rect color={sliderBlue} />
         </Composition>
       </header>
-
+      <row widths={[80, 80]}>
+        <col>
+          <img src={'./assets/sample1.png'} height={80} />
+          <img src={'./assets/sample2.jpg'} height={120} />
+        </col>
+        <col>
+          <img src={'./assets/sample2.jpg'} height={120} />
+          <img src={'./assets/sample1.png'} height={80} />
+        </col>
+      </row>
       <Tree />
     </>
   );

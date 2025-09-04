@@ -176,11 +176,12 @@ function renderElement(element) {
     case 'row':
       {
         const widths = element.widths ?? [];
+        mukitty.beginLayout(0, 0);
         mukitty.layoutRow(element.height, ...widths);
         for (let child of element.children) {
           renderElement(child);
         }
-        mukitty.layoutRow();
+        mukitty.endLayout();
       }
       break;
     case 'col':
@@ -259,6 +260,13 @@ function renderElement(element) {
         for (let child of element.children) {
           renderElement(child);
         }
+      }
+      break;
+    case 'img':
+      {
+        mukitty.beginLayout(element.width ?? 0, element.height ?? 0);
+        mukitty.image(element.src);
+        mukitty.endLayout();
       }
       break;
     case 'panel':

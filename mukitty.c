@@ -11,6 +11,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize2.h"
 #include "microui.h"
 // Bitmap font for rendering text.
 #include "c64_font.h"
@@ -419,6 +423,32 @@ void draw_icon(int id, mu_Rect rect, mu_Color color) {
     draw_char(x, y, id, toColor(color));
 }
 
+void draw_image(unsigned char *data, int n, int x, int y, int w, int h) {
+    if (!data) return;
+
+    int total_pixels = w * h;
+    for (int i = 0; i < h; i++) {
+        for (int j = 0; j < w; j++) {
+            int pixel_index = (i * w + j) * n;
+
+            if (pixel_index + 2 < total_pixels * n) {
+                uint32_t color = 0;
+                if (n >= 3) {
+                    uint8_t r = data[pixel_index];
+                    uint8_t g = data[pixel_index + 1];
+                    uint8_t b = data[pixel_index + 2];
+                    color = (r << 16) | (g << 8) | b;
+                } else if (n == 1) {
+                    uint8_t gray = data[pixel_index];
+                    color = (gray << 16) | (gray << 8) | gray;
+                }
+
+                crt_set_pixel(x + j, y + i, color);
+            }
+        }
+    }
+}
+
 void set_clip_rect(int x, int y, int w, int h) {
     if (w == 0x1000000 && h == 0x1000000) {
         clip_rect.enabled = false;
@@ -683,6 +713,15 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
             set_clip_rect(cmd->clip.rect.x, cmd->clip.rect.y,
                           cmd->clip.rect.w, cmd->clip.rect.h);
             break;
+        case MU_COMMAND_IMAGE: {
+            int x, y, n;
+            unsigned char *data = stbi_load(cmd->image.path, &x, &y, &n, 0);
+            unsigned char *resized = stbir_resize_uint8_linear(data, x, y, 0, NULL, cmd->image.rect.w, cmd->image.rect.h, 0, n);
+            stbi_image_free(data);
+            if (!resized) break;
+            draw_image(resized, n, cmd->image.rect.x, cmd->image.rect.y, cmd->image.rect.w, cmd->image.rect.h);
+            stbi_image_free(resized);
+        } break;
         }
     }
     kitty_update_display();
@@ -758,6 +797,41 @@ napi_value closeWindow(napi_env env, napi_callback_info info) {
     return NULL;
 }
 
+napi_value muImage(napi_env env, napi_callback_info info) {
+    node_parse_args();
+    char src[MAX_STR_LEN];
+    node_get_string(0, src);
+    mu_Rect rect = mu_layout_next(&ctx);
+    size_t len = strlen(src);
+    mu_Command *cmd = mu_push_command(&ctx, MU_COMMAND_IMAGE, sizeof(mu_ImageCommand) + len);
+    cmd->image.rect = rect;
+    memcpy(cmd->image.path, src, len + 1);
+    return NULL;
+}
+
+#define get_layout_size(ctx) ((ctx)->layout_stack.items[(ctx)->layout_stack.idx - 1].size)
+static mu_Vec2 layout_stack[64];
+int ls_idx = 0;
+napi_value muBeginLayout(napi_env env, napi_callback_info info) {
+    node_parse_args();
+    int w, h;
+    napi_get_value_int32(env, args[0], &w);
+    napi_get_value_int32(env, args[1], &h);
+
+    mu_Vec2 size = get_layout_size(&ctx);
+    layout_stack[ls_idx++] = size;
+    if (w) mu_layout_width(&ctx, w);
+    if (h) mu_layout_height(&ctx, h);
+    return NULL;
+}
+
+napi_value muEndLayout(napi_env env, napi_callback_info info) {
+    mu_Vec2 size = layout_stack[--ls_idx];
+    mu_layout_width(&ctx, size.x);
+    mu_layout_height(&ctx, size.y);
+    return NULL;
+}
+
 napi_value Init(napi_env env, napi_value exports) {
     node_export_fn("init", initWindow);
     node_export_fn("close", closeWindow);
@@ -781,6 +855,9 @@ napi_value Init(napi_env env, napi_value exports) {
     node_export_fn("header", muHeader);
     node_export_fn("beginPanel", muBeginPanel);
     node_export_fn("endPanel", muEndPanel);
+    node_export_fn("image", muImage);
+    node_export_fn("beginLayout", muBeginLayout);
+    node_export_fn("endLayout", muEndLayout);
 
     return exports;
 }
