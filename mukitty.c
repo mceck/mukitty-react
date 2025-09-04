@@ -801,11 +801,7 @@ napi_value muImage(napi_env env, napi_callback_info info) {
     node_parse_args();
     char src[MAX_STR_LEN];
     node_get_string(0, src);
-    mu_Rect rect = mu_layout_next(&ctx);
-    size_t len = strlen(src);
-    mu_Command *cmd = mu_push_command(&ctx, MU_COMMAND_IMAGE, sizeof(mu_ImageCommand) + len);
-    cmd->image.rect = rect;
-    memcpy(cmd->image.path, src, len + 1);
+    mu_image(&ctx, src);
     return NULL;
 }
 
