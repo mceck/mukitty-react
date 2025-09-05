@@ -495,17 +495,19 @@ ds_hm_declare(my_map, int, const char *);
     printf("%s\n", *value);
  ```
  */
-#define ds_hm_try(hm, key_v)                                                          \
-    ({                                                                                \
-        __typeof__(&(hm)->table.items[0].items[0].value) _val = NULL;                 \
-        size_t _hash = _ds_hm_hfn((hm), key_v) % (hm)->table.count;                   \
-        for (size_t _i = 0; _i < (hm)->table.items[_hash].count; _i++) {              \
-            if (_ds_hm_eqfn((hm), (hm)->table.items[_hash].items[_i].key, (key_v))) { \
-                _val = &(hm)->table.items[_hash].items[_i].value;                     \
-                break;                                                                \
-            }                                                                         \
-        }                                                                             \
-        _val;                                                                         \
+#define ds_hm_try(hm, key_v)                                                              \
+    ({                                                                                    \
+        __typeof__(&(hm)->table.items[0].items[0].value) _val = NULL;                     \
+        if((hm)->table.count) {                                                           \
+            size_t _hash = _ds_hm_hfn((hm), key_v) % (hm)->table.count;                   \
+            for (size_t _i = 0; _i < (hm)->table.items[_hash].count; _i++) {              \
+                if (_ds_hm_eqfn((hm), (hm)->table.items[_hash].items[_i].key, (key_v))) { \
+                    _val = &(hm)->table.items[_hash].items[_i].value;                     \
+                    break;                                                                \
+                }                                                                         \
+            }                                                                             \
+        }                                                                                 \
+        _val;                                                                             \
     })
 
 /**

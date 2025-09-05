@@ -732,7 +732,7 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
                 unsigned char *rawdata = stbi_load(cmd->image.path, &x, &y, &n, 0);
                 struct img_data data = {.data = rawdata, .width = x, .height = y, .channels = n};
                 hm_set(&image_cache, cmd->image.path, data);
-                img = &data;
+                img = hm_try(&image_cache, cmd->image.path);
             }
             unsigned char *resized = stbir_resize_uint8_linear(img->data, img->width, img->height, 0, NULL, cmd->image.rect.w, cmd->image.rect.h, 0, img->channels);
             if (!resized) break;
