@@ -16,6 +16,9 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb_image_resize2.h"
 #include "microui.h"
+#define DS_IMPLEMENTATION
+#define DS_NO_PREFIX
+#include "ds.h"
 // Bitmap font for rendering text.
 #include "c64_font.h"
 
@@ -30,6 +33,15 @@
 
 #define TRACE_LOGS 1
 #define LOG(fmt, ...) TRACE_LOGS ? printf("\33[2K\r" fmt, ##__VA_ARGS__) : 0
+
+struct img_data {
+    unsigned char *data;
+    int width;
+    int height;
+    int channels;
+};
+hm_declare(ImageCache, const char *, struct img_data);
+ImageCache image_cache = {0};
 
 #define node_parse_args()                                 \
     size_t argc;                                          \
@@ -714,12 +726,17 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
                           cmd->clip.rect.w, cmd->clip.rect.h);
             break;
         case MU_COMMAND_IMAGE: {
-            int x, y, n;
-            unsigned char *data = stbi_load(cmd->image.path, &x, &y, &n, 0);
-            unsigned char *resized = stbir_resize_uint8_linear(data, x, y, 0, NULL, cmd->image.rect.w, cmd->image.rect.h, 0, n);
-            stbi_image_free(data);
+            struct img_data *img = hm_try(&image_cache, cmd->image.path);
+            if (!img) {
+                int x, y, n;
+                unsigned char *rawdata = stbi_load(cmd->image.path, &x, &y, &n, 0);
+                struct img_data data = {.data = rawdata, .width = x, .height = y, .channels = n};
+                hm_set(&image_cache, cmd->image.path, data);
+                img = &data;
+            }
+            unsigned char *resized = stbir_resize_uint8_linear(img->data, img->width, img->height, 0, NULL, cmd->image.rect.w, cmd->image.rect.h, 0, img->channels);
             if (!resized) break;
-            draw_image(resized, n, cmd->image.rect.x, cmd->image.rect.y, cmd->image.rect.w, cmd->image.rect.h);
+            draw_image(resized, img->channels, cmd->image.rect.x, cmd->image.rect.y, cmd->image.rect.w, cmd->image.rect.h);
             stbi_image_free(resized);
         } break;
         }
@@ -793,6 +810,7 @@ napi_value closeWindow(napi_env env, napi_callback_info info) {
         free(fb);
         fb = NULL;
     }
+    hm_free(&image_cache);
     disable_raw_mode();
     return NULL;
 }
