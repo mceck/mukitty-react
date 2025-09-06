@@ -1,6 +1,15 @@
 /**
  * ds - A simple and lightweight stb-style data structures and utilities library in C.
- * https://github.com/mceck/ds
+ * https://github.com/mceck/c-stb
+ *
+ * - Dynamic arrays
+ * - String builder
+ * - Linked lists
+ * - Hash maps
+ * - Logging
+ * - File utilities
+ *
+ * #define DS_NO_PREFIX to disable the `ds_` prefix for all functions and types.
  */
 #ifndef DS_H_
 #define DS_H_
