@@ -36,6 +36,7 @@ typedef enum {
 #endif // DS_LOG_LEVEL
 
 static const char *DsLogLevelStrings[] = {
+    [DS_DEBUG] = "DEBUG",
     [DS_INFO] = "INFO",
     [DS_WARN] = "WARN",
     [DS_ERROR] = "ERROR"};
@@ -92,11 +93,11 @@ typedef struct {
  */
 #define ds_da_reserve(da, expected_capacity)                                              \
     do {                                                                                  \
-        if ((expected_capacity) > (da)->capacity) {                                       \
+        if ((size_t)(expected_capacity) > (da)->capacity) {                               \
             if ((da)->capacity == 0) {                                                    \
                 (da)->capacity = DS_DA_INIT_CAPACITY;                                     \
             }                                                                             \
-            while ((expected_capacity) > (da)->capacity) {                                \
+            while ((size_t)(expected_capacity) > (da)->capacity) {                        \
                 (da)->capacity = (da)->capacity + ((da)->capacity >> 1);                  \
             }                                                                             \
             (da)->items = DS_REALLOC((da)->items, (da)->capacity * sizeof(*(da)->items)); \
@@ -498,7 +499,7 @@ ds_hm_declare(my_map, int, const char *);
 #define ds_hm_try(hm, key_v)                                                              \
     ({                                                                                    \
         __typeof__(&(hm)->table.items[0].items[0].value) _val = NULL;                     \
-        if((hm)->table.count) {                                                           \
+        if ((hm)->table.count) {                                                          \
             size_t _hash = _ds_hm_hfn((hm), key_v) % (hm)->table.count;                   \
             for (size_t _i = 0; _i < (hm)->table.items[_hash].count; _i++) {              \
                 if (_ds_hm_eqfn((hm), (hm)->table.items[_hash].items[_i].key, (key_v))) { \
