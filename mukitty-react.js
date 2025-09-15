@@ -54,6 +54,10 @@ const hostConfig = {
       text,
     };
   },
+  resetTextContent(instance) {
+    instance.children = [];
+    instance.text = '';
+  },
   createInstance(type, props, rootContainerInstance, _hostContext) {
     const elementProps = { ...props };
     if (typeof elementProps.children === 'string') {
@@ -283,7 +287,7 @@ function renderElement(element) {
   }
 }
 
-exports.render = (element) => {
+exports.render = async (element) => {
   const container = MukittyRenderer.createContainer({ type: 'window' }, 0);
   MukittyRenderer.updateContainer(element, container);
 
@@ -294,6 +298,7 @@ exports.render = (element) => {
     mukitty.begin();
     renderElement(container.containerInfo);
     mukitty.end();
+    await new Promise((r) => setTimeout(r, 0));
   }
   mukitty.close();
 };

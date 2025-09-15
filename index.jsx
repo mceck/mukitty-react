@@ -1,5 +1,6 @@
 const React = require('react');
 const mukitty = require('./mukitty-react');
+const https = require('https');
 
 const Composition = ({ children, height }) => {
   return (
@@ -33,6 +34,51 @@ const Tree = () => {
         </tree>
       </tree>
     </tree>
+  );
+};
+
+const Modal2 = ({ onClose }) => {
+  const [url, setUrl] = React.useState(
+    'https://jsonplaceholder.typicode.com/todos/1'
+  );
+  const [jsdata, setJsdata] = React.useState(null);
+
+  const loadData = React.useCallback(() => {
+    setJsdata(null);
+    https.get(url, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', async () => {
+        await new Promise((r) => setTimeout(r, 500));
+        setJsdata(data);
+      });
+    });
+  }, [url]);
+
+  React.useEffect(() => {
+    loadData();
+  }, []);
+
+  return (
+    <modal
+      title="Http Fetch"
+      top={100}
+      left={200}
+      width={200}
+      height={150}
+      onClose={onClose}
+    >
+      <row height={-25} widths={[-1]}>
+        {!jsdata && <text>Loading...</text>}
+        {jsdata && <text>Fetched: {jsdata}</text>}
+      </row>
+      <row height={20} widths={[150, -1]}>
+        <input value={url} onChange={setUrl} onSubmit={loadData} />
+        <button onClick={loadData}>Load</button>
+      </row>
+    </modal>
   );
 };
 
@@ -78,6 +124,7 @@ const App = () => {
   const [inputValue, setInputValue] = React.useState('');
   const [inputValue2, setInputValue2] = React.useState('');
   const [isOpen, setIsOpen] = React.useState(false);
+  const [isOpen2, setIsOpen2] = React.useState(false);
 
   const sliderRed = React.useMemo(() => slider << 16, [slider]);
   const sliderGreen = React.useMemo(() => slider << 8, [slider]);
@@ -102,12 +149,16 @@ const App = () => {
         <label>Slider value: {slider.toFixed(2)}</label>
         <slider min={0} max={255} value={slider} onChange={setSlider} />
       </row>
-      <row height={20} widths={[-1]}>
+      <row height={20} widths={[200, -1]}>
         <button onClick={() => setIsOpen(!isOpen)}>
           {isOpen ? 'Close Modal' : 'Open Modal'}
         </button>
+        <button onClick={() => setIsOpen2(!isOpen2)}>
+          {isOpen2 ? 'Close Modal2' : 'Open Modal2'}
+        </button>
       </row>
       {isOpen && <Modal onClose={() => setIsOpen(false)} />}
+      {isOpen2 && <Modal2 onClose={() => setIsOpen2(false)} />}
       <header title="Collapsible" startOpened={true}>
         <Composition height={80}>
           <rect color={sliderRed} />
