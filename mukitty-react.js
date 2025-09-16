@@ -1,8 +1,7 @@
 const React = require('react');
 const Reconciler = require('react-reconciler');
+const { DefaultEventPriority } = require('react-reconciler/constants');
 const mukitty = require('./build/Release/mukitty.node');
-
-const TRACE = false; // Set to true for debugging
 
 class ObjectIdGenerator {
   constructor() {
@@ -28,8 +27,13 @@ const hostConfig = {
   supportsMutation: true,
   supportsPersistence: false,
   supportsHydration: false,
-  getRootHostContext: (...args) => {
-    return 'urmom';
+  maySuspendCommit: () => false,
+  getCurrentUpdatePriority: () => DefaultEventPriority,
+  setCurrentUpdatePriority: (priority) => {},
+  resolveUpdatePriority: () => DefaultEventPriority,
+
+  getRootHostContext(rootContainerInstance) {
+    return 'root';
   },
   prepareForCommit: (...args) => {
     return null;
@@ -37,9 +41,6 @@ const hostConfig = {
   resetAfterCommit: (...args) => {
     objectIdGenerator.reset();
   },
-  // resolveUpdatePriority: (...args) => {
-  //   return () => 0;
-  // },
   getChildHostContext: (...args) => {
     return 'urchild';
   },
@@ -101,7 +102,7 @@ const hostConfig = {
     }
   },
   finalizeInitialChildren(...args) {
-    return true;
+    return false;
   },
   clearContainer(rootContainerInstance) {
     rootContainerInstance.children = [];
@@ -110,22 +111,12 @@ const hostConfig = {
     rootContainerInstance.children.push(child);
   },
   commitMount(instance, type, newProps) {},
-  prepareUpdate(
-    instance,
-    type,
-    oldProps,
-    newProps,
-    _rootContainerInstance,
-    _hostContext
-  ) {
-    const { children, ...props } = newProps;
-    return props;
-  },
   commitTextUpdate(textInstance, oldText, newText) {
     textInstance.text = newText;
   },
-  commitUpdate(instance, updatePayload, type, oldProps, newProps) {
-    Object.assign(instance, updatePayload);
+  commitUpdate(instance, tag, oldProps, newProps) {
+    const { children, ...rest } = newProps;
+    Object.assign(instance, rest);
   },
 };
 const MukittyRenderer = Reconciler(hostConfig);
@@ -288,7 +279,18 @@ function renderElement(element) {
 }
 
 exports.render = async (element) => {
-  const container = MukittyRenderer.createContainer({ type: 'window' }, 0);
+  const root = { type: 'window', children: [] };
+  const container = MukittyRenderer.createContainer(
+    root,
+    0,
+    null,
+    false,
+    null,
+    '',
+    console.error,
+    console.error,
+    console.error
+  );
   MukittyRenderer.updateContainer(element, container);
 
   mukitty.init();
@@ -296,9 +298,9 @@ exports.render = async (element) => {
     const stop = mukitty.handleInputs();
     if (stop) break;
     mukitty.begin();
-    renderElement(container.containerInfo);
+    renderElement(root);
     mukitty.end();
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setImmediate(r));
   }
   mukitty.close();
 };
