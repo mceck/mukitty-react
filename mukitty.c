@@ -23,8 +23,8 @@
 #include "c64_font.h"
 
 #define FONT_SIZE 8
-#define RESW 4 // Character width in pixels.
-#define RESH 8 // Character height in pixels.
+#define RESW 6  // Character width in pixels.
+#define RESH 12 // Character height in pixels.
 
 #define MAX_STR_LEN 256
 #define MAX_INPUT_IDS 32
