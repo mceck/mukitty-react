@@ -163,7 +163,7 @@ function renderElement(element) {
         for (let child of element.children) {
           text += renderTextElement(child);
         }
-        if (mukitty.button(text)) {
+        if (mukitty.button(text, element.fontSize ?? 12)) {
           element.onClick?.();
         }
       }
@@ -194,24 +194,37 @@ function renderElement(element) {
         for (let child of element.children) {
           text += renderTextElement(child);
         }
-        mukitty.label(text);
+        mukitty.label(text, element.fontSize ?? 12);
       }
       break;
     case 'slider':
       {
-        const val = mukitty.slider(element.min, element.max, element.value);
+        const val = mukitty.slider(
+          element.min,
+          element.max,
+          element.value,
+          element.fontSize ?? 12
+        );
         element.onChange?.(val);
       }
       break;
     case 'checkbox':
       {
-        const checked = mukitty.checkbox(element.checked, element.label);
+        const checked = mukitty.checkbox(
+          element.checked,
+          element.label,
+          element.fontSize ?? 12
+        );
         element.onChange?.(checked);
       }
       break;
     case 'input':
       {
-        const { text, submit } = mukitty.textbox(element.id, element.value);
+        const { text, submit } = mukitty.textbox(
+          element.id,
+          element.value,
+          element.fontSize ?? 12
+        );
         element.onChange?.(text);
         if (submit) {
           element.onSubmit?.(text);
@@ -224,7 +237,7 @@ function renderElement(element) {
         for (let child of element.children) {
           text += renderTextElement(child);
         }
-        mukitty.text(text);
+        mukitty.text(text, element.fontSize ?? 12);
       }
       break;
     case 'rect':
@@ -247,7 +260,11 @@ function renderElement(element) {
       break;
     case 'header':
       {
-        const open = mukitty.header(element.title, element.startOpened);
+        const open = mukitty.header(
+          element.title,
+          element.startOpened,
+          element.fontSize ?? 12
+        );
         if (!open) {
           element.onClose?.();
           return;

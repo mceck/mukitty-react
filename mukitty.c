@@ -15,14 +15,17 @@
 #include "stb_image.h"
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb_image_resize2.h"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #include "microui.h"
 #define DS_IMPLEMENTATION
 #define DS_NO_PREFIX
 #include "ds.h"
 // Bitmap font for rendering text.
 #include "c64_font.h"
+#include "arena.c"
 
-#define FONT_SIZE 8
+#define FONT_SIZE 6
 #define RESW 6  // Character width in pixels.
 #define RESH 12 // Character height in pixels.
 
@@ -73,6 +76,11 @@ ImageCache image_cache = {0};
         napi_set_named_property(env, exports, name, _fn);     \
     } while (0)
 
+typedef struct {
+    double size;
+    int font_idx;
+} Font;
+
 /* Global configuration (mostly from command line options). */
 struct {
     bool ghostty_mode;       // Use non standard Kitty protocol that works with
@@ -85,7 +93,9 @@ struct {
     int width;               // display width in pixels.
     int height;              // display height in pixels.
     unsigned long render_id; // Unique ID for the current render session.
+    stbtt_fontinfo fonts[4]; // Loaded fonts.
 } Config;
+
 static struct {
     int x, y, w, h;
     bool enabled;
@@ -95,6 +105,7 @@ struct termios orig_termios;
 static uint8_t *fb = NULL; // Framebuffer pointer
 static int frame_number = 0;
 static mu_Context ctx;
+static ArenaAllocator all = {0};
 
 // Function to encode data to base64
 size_t base64_encode(size_t input_length, char *encoded_data) {
@@ -365,6 +376,13 @@ void crt_set_pixel(int x, int y, uint32_t color) {
     dst[2] = color & 0xff;         // B
 }
 
+void load_fonts() {
+    StringBuilder sb = {0};
+    read_entire_file("c64.ttf", &sb); // FIXME: leak
+    const unsigned char *data = (const unsigned char *)sb.items;
+    stbtt_InitFont(&Config.fonts[0], data, stbtt_GetFontOffsetForIndex(data, 0));
+}
+
 void init_config() {
     srand(getpid());
     const char *term = getenv("TERM");
@@ -379,6 +397,7 @@ void init_config() {
         fprintf(stderr, "Error: Unsupported terminal type '%s'.\n", term);
         exit(1);
     }
+    load_fonts();
 }
 
 uint32_t toColor(mu_Color color) {
@@ -393,37 +412,59 @@ void draw_rectangle(int x, int y, int w, int h, uint32_t color) {
     }
 }
 
-void draw_char(int x, int y, char c, uint32_t color) {
+int draw_char(int x, int y, char c, uint32_t color, Font *font) {
     uint8_t ch = (uint8_t)c;
+    Font df = {.size = FONT_SIZE * 2, .font_idx = 0};
+    if (font == NULL || font->size <= 0 || font->font_idx != 0) {
+        font = &df;
+    }
 
     if (ch > 126)
         ch = 32; // Replace invalid chars with space
+    if (ch == 32)
+        return font->size / 2;
+    unsigned char *glyph;
+    int w = FONT_SIZE, h = FONT_SIZE, xoff = 0, yoff = 0;
+    glyph = stbtt_GetCodepointBitmap(&Config.fonts[font->font_idx], 0, stbtt_ScaleForPixelHeight(&Config.fonts[font->font_idx], font->size), c, &w, &h, &xoff, &yoff);
+    for (int row = 0; row < h; row++) {
+        for (int col = 0; col < w; col++) {
+            if (glyph[row * w + col]) {
+                crt_set_pixel(x + col + xoff + 1, y + row + yoff + (font->size / 1.2), color);
+            }
+        }
+    }
+    free(glyph);
+    return w + xoff + 2;
+}
 
+void draw_icon_char(int x, int y, char c, uint32_t color) {
+    uint8_t ch = (uint8_t)c;
+
+    if (ch > 5)
+        return;
     const uint8_t *glyph = font_8x8[ch];
-
-    for (int row = 0; row < 8; row++) {
-        uint8_t line = glyph[row];
-        for (int col = 0; col < 8; col++) {
-            if (line & (0x80 >> col)) {
+    for (int row = 0; row < FONT_SIZE; row++) {
+        uint8_t row_data = glyph[row];
+        for (int col = 0; col < FONT_SIZE; col++) {
+            if (row_data & (0x80 >> col)) {
                 crt_set_pixel(x + col, y + row, color);
             }
         }
     }
 }
 
-void draw_text(int x, int y, char *str, uint32_t color) {
+void draw_text(int x, int y, char *str, uint32_t color, Font *font) {
     if (!str)
         return;
     int current_x = x, current_y = y;
-    int char_width = 8, char_height = 8;
+    int char_height = font ? font->size : FONT_SIZE;
 
     while (*str) {
         if (*str == '\n') {
             current_x = x;
             current_y += char_height;
         } else {
-            draw_char(current_x, current_y, *str, color);
-            current_x += char_width;
+            current_x += draw_char(current_x, current_y, *str, color, font);
         }
         str++;
     }
@@ -432,7 +473,7 @@ void draw_text(int x, int y, char *str, uint32_t color) {
 void draw_icon(int id, mu_Rect rect, mu_Color color) {
     int x = rect.x + (rect.w - 8) / 2;
     int y = rect.y + (rect.h - 8) / 2;
-    draw_char(x, y, id, toColor(color));
+    draw_icon_char(x, y, id, toColor(color));
 }
 
 void draw_image(unsigned char *data, int n, int x, int y, int w, int h) {
@@ -502,17 +543,38 @@ void updateWindowSize(int width, int height) {
 int getTextWidth(mu_Font font, const char *str, int len) {
     if (len < 0)
         len = strlen(str);
-    return len * FONT_SIZE;
+    if (font == NULL)
+        return len * FONT_SIZE;
+    Font *f = (Font *)font;
+    int width = 0;
+    for (int i = 0; i < len; i++) {
+        int c = (unsigned char)str[i];
+        int w, xoff;
+        unsigned char *x = stbtt_GetCodepointBitmap(&Config.fonts[f->font_idx], 0, stbtt_ScaleForPixelHeight(&Config.fonts[f->font_idx], f->size), c, &w, 0, &xoff, 0);
+        free(x);
+        width += (w + xoff + 2);
+    }
+    return width;
 }
 
-int getTextHeight(mu_Font font) { return FONT_SIZE; }
+int getTextHeight(mu_Font font) {
+    if (font == NULL)
+        return FONT_SIZE;
+    Font *f = (Font *)font;
+    return f->size + 1;
+}
 
 napi_value muButton(napi_env env, napi_callback_info info) {
     node_parse_args();
     char text[MAX_STR_LEN];
     node_get_string(0, text);
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
+    font->font_idx = 0;
+    if (argc > 1)
+        napi_get_value_double(env, args[1], &font->size);
 
-    bool result = mu_button(&ctx, text);
+    bool result = mu_button(&ctx, text, font);
     return node_bool_to_napi_val(result);
 }
 
@@ -520,8 +582,12 @@ napi_value muLabel(napi_env env, napi_callback_info info) {
     node_parse_args();
     char text[MAX_STR_LEN];
     node_get_string(0, text);
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
+    if (argc > 1)
+        napi_get_value_double(env, args[1], &font->size);
 
-    mu_label(&ctx, text);
+    mu_label(&ctx, text, font);
     return NULL;
 }
 
@@ -529,12 +595,16 @@ napi_value muSlider(napi_env env, napi_callback_info info) {
     node_parse_args();
     int min, max;
     double value;
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
     napi_get_value_int32(env, args[0], &min);
     napi_get_value_int32(env, args[1], &max);
     napi_get_value_double(env, args[2], &value);
+    if (argc > 3)
+        napi_get_value_double(env, args[3], &font->size);
 
     float float_value = (float)value;
-    mu_slider(&ctx, &float_value, min, max);
+    mu_slider(&ctx, &float_value, min, max, font);
     return node_float_to_napi_val(float_value);
 }
 
@@ -544,9 +614,13 @@ napi_value muCheckbox(napi_env env, napi_callback_info info) {
     char text[MAX_STR_LEN];
     napi_get_value_bool(env, args[0], &checked);
     node_get_string(1, text);
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
+    if (argc > 2)
+        napi_get_value_double(env, args[2], &font->size);
 
     int int_checked = checked;
-    mu_checkbox(&ctx, text, &int_checked);
+    mu_checkbox(&ctx, text, &int_checked, font);
     return node_bool_to_napi_val(int_checked);
 }
 
@@ -558,8 +632,12 @@ napi_value muTextbox(napi_env env, napi_callback_info info) {
     if (id >= MAX_INPUT_IDS) id = id % MAX_INPUT_IDS;
     static char text[MAX_INPUT_IDS][MAX_STR_LEN];
     node_get_string(1, text[id]);
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
+    if (argc > 2)
+        napi_get_value_double(env, args[2], &font->size);
 
-    int submit = mu_textbox(&ctx, text[id], sizeof(text[id])) & MU_RES_SUBMIT;
+    int submit = mu_textbox(&ctx, text[id], sizeof(text[id]), font) & MU_RES_SUBMIT;
     napi_value result, text_val, submit_val;
     napi_create_object(env, &result);
     napi_create_string_utf8(env, text[id], NAPI_AUTO_LENGTH, &text_val);
@@ -573,8 +651,12 @@ napi_value muText(napi_env env, napi_callback_info info) {
     node_parse_args();
     char text[MAX_STR_LEN];
     node_get_string(0, text);
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
+    if (argc > 1)
+        napi_get_value_double(env, args[1], &font->size);
 
-    mu_text(&ctx, text);
+    mu_text(&ctx, text, font);
     return NULL;
 }
 
@@ -710,10 +792,11 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
     mu_Command *cmd = NULL;
     while (mu_next_command(&ctx, &cmd)) {
         switch (cmd->type) {
-        case MU_COMMAND_TEXT:
+        case MU_COMMAND_TEXT: {
+            Font *font = (Font *)cmd->text.font;
             draw_text(cmd->text.pos.x, cmd->text.pos.y, cmd->text.str,
-                      toColor(cmd->text.color));
-            break;
+                      toColor(cmd->text.color), font);
+        } break;
         case MU_COMMAND_RECT:
             draw_rectangle(cmd->rect.rect.x, cmd->rect.rect.y, cmd->rect.rect.w,
                            cmd->rect.rect.h, toColor(cmd->rect.color));
@@ -741,6 +824,7 @@ napi_value muEnd(napi_env env, napi_callback_info info) {
         } break;
         }
     }
+    arfree(&all);
     kitty_update_display();
     limit_fps();
     return NULL;
@@ -773,11 +857,15 @@ napi_value muHeader(napi_env env, napi_callback_info info) {
     int opt = 0;
     bool expanded;
     napi_get_value_bool(env, args[1], &expanded);
+    Font *font = armalloc(&all, sizeof(Font));
+    font->size = FONT_SIZE * 2;
+    if (argc > 2)
+        napi_get_value_double(env, args[2], &font->size);
     if (expanded) {
         opt = MU_OPT_EXPANDED;
     }
 
-    int open = mu_header_ex(&ctx, text, opt);
+    int open = mu_header_ex(&ctx, text, opt, font);
     return node_bool_to_napi_val(open != 0);
 }
 

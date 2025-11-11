@@ -132,8 +132,10 @@ const App = () => {
   return (
     <>
       <row height={50} widths={[200, -1]}>
-        <label>Clicked ({count})</label>
-        <button onClick={() => setCount(count + 1)}>Click</button>
+        <label fontSize={18}>Clicked ({count})</label>
+        <button fontSize={32} onClick={() => setCount(count + 1)}>
+          Click
+        </button>
       </row>
       <row height={20} widths={[200, -1]}>
         <label>Checkbox is {checked ? 'checked' : 'unchecked'}</label>
